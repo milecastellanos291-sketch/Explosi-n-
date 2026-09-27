@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Explosión 3D realista</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#020202;font-family:Arial}
+canvas{display:block}
+#ui{position:fixed;z-index:5;top:15px;left:15px;color:#fff;background:#080808cc;padding:14px;border-radius:12px;border:1px solid #ffffff22}
+button{padding:10px 14px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
+small{display:block;opacity:.7;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="ui"><b>Simulación 3D — explosión visual</b><br>
+<button id="go">💥 Activar</button>
+<small>Arrastra para mirar · rueda para zoom</small></div>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+import {OrbitControls} from "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js";
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x020202);
+scene.fog=new THREE.FogExp2(0x080808,.055);
+
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,.1,100);
+camera.position.set(0,2.2,8);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.2;
+document.body.appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.target.set(0,1,0);
+
+scene.add(new THREE.HemisphereLight(0x777777,0x111111,1.1));
+const fireLight=new THREE.PointLight(0xff5415,0,25);
+fireLight.position.set(0,1,0);
+scene.add(fireLight);
+
+const floor=new THREE.Mesh(
+ new THREE.PlaneGeometry(30,30),
+ new THREE.MeshStandardMaterial({color:0x0a0a0a,roughness:.96})
+);
+floor.rotation.x=-Math.PI/2; floor.position.y=-1.2; scene.add(floor);
+
+const core=new THREE.Mesh(
+ new THREE.SphereGeometry(.35,32,32),
+ new THREE.MeshBasicMaterial({color:0xffffd0})
+);
+core.position.y=.15; scene.add(core);
+
+const glow=new THREE.Mesh(
+ new THREE.SphereGeometry(1,32,32),
+ new THREE.MeshBasicMaterial({color:0xff5714,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})
+);
+glow.position.copy(core.position); scene.add(glow);
+
+const fireballs=[];
+for(let i=0;i<70;i++){
+ const m=new THREE.Mesh(
+  new THREE.SphereGeometry(.08+Math.random()*.18,12,12),
+  new THREE.MeshBasicMaterial({
+   color:new THREE.Color().setHSL(.04+Math.random()*.09,1,.48+.15*Math.random()),
+   transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false
+  })
+ );
+ m.userData={d:new THREE.Vector3((Math.random()-.5)*2.2,.3+Math.random()*2.8,(Math.random()-.5)*2.2),
+             s:.7+Math.random()*1.5};
+ scene.add(m); fireballs.push(m);
+}
+
+const smoke=[];
+for(let i=0;i<110;i++){
+ const s=new THREE.Sprite(new THREE.SpriteMaterial({
+  color:new THREE.Color(.18+Math.random()*.16,.18+Math.random()*.16,.18+Math.random()*.16),
+  transparent:true,opacity:0,depthWrite:false
+ }));
+ s.scale.setScalar(.15+Math.random()*.35);
+ s.userData={d:new THREE.Vector3((Math.random()-.5)*1.8,.5+Math.random()*2.8,(Math.random()-.5)*1.8),
+             s:.25+Math.random()*.65};
+ scene.add(s); smoke.push(s);
+}
+
+const N=1000,pos=new Float32Array(N*3),col=new Float32Array(N*3),vel=[];
+for(let i=0;i<N;i++){
+ pos[i*3+1]=.15;
+ const c=new THREE.Color().setHSL(.03+Math.random()*.11,1,.45+.2*Math.random());
+ col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b;
+ vel.push(new THREE.Vector3((Math.random()-.5)*4,(Math.random()*.9+.1)*4,(Math.random()-.5)*4));
+}
+const pg=new THREE.BufferGeometry();
+pg.setAttribute("position",new THREE.BufferAttribute(pos,3));
+pg.setAttribute("color",new THREE.BufferAttribute(col,3));
+const pm=new THREE.PointsMaterial({size:.075,vertexColors:true,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+scene.add(new THREE.Points(pg,pm));
+
+const rings=[];
+for(let i=0;i<3;i++){
+ const r=new THREE.Mesh(new THREE.RingGeometry(.15,.22,96),
+  new THREE.MeshBasicMaterial({color:i?0xff6418:0xffc45a,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+ r.rotation.x=-Math.PI/2;r.position.y=-1.17;scene.add(r);rings.push(r);
+}
+
+let start=-10,active=false;
+function reset(){
+ fireballs.forEach(x=>x.material.opacity=0);
+ smoke.forEach(x=>x.material.opacity=0);
+ pm.opacity=0;rings.forEach(x=>x.material.opacity=0);
+ core.scale.setScalar(.2);glow.scale.setScalar(.2);fireLight.intensity=0;
+}
+reset();
+go.onclick=()=>{reset();start=performance.now();active=true};
+
+function animate(now){
+ requestAnimationFrame(animate);
+ const t=active?(now-start)/1000:0;
+ if(active){
+  const pulse=Math.exp(-((t-.28)/.25)**2);
+  core.scale.setScalar(.2+2.1*pulse+Math.min(t*1.7,2.8)*Math.max(0,1-t/2));
+  glow.scale.setScalar(.25+4.2*pulse+Math.min(t*1.2,3));
+  glow.material.opacity=.05+.55*pulse;
+  fireLight.intensity=28*pulse+7*Math.max(0,1-t/2.8);
+
+  fireballs.forEach(m=>{
+   const d=m.userData.d,p=Math.min(t*m.userData.s,3.4);
+   m.position.set(d.x*p,d.y*p-.62*t*t,d.z*p);
+   m.scale.setScalar(.55+.9*Math.min(t,1));
+   m.material.opacity=Math.max(0,Math.min(1,t/.12))*Math.max(0,1-t/2.7);
+  });
+  smoke.forEach((s,i)=>{
+   const d=s.userData.d,p=Math.min(Math.max(t-.35,0)*s.userData.s,2.8);
+   s.position.set(d.x*p+Math.sin(t*2+i)*.035,d.y*p-.18*t*t,d.z*p);
+   s.scale.setScalar(.25+p*.85);
+   s.material.opacity=Math.max(0,Math.min(.72,(t-.35)*1.4))*Math.max(0,1-t/4);
+  });
+
+  const a=pg.attributes.position.array;
+  for(let i=0;i<N;i++){const v=vel[i],p=Math.min(t*1.75,4);a[i*3]=v.x*p;a[i*3+1]=.15+v.y*p-.95*t*t;a[i*3+2]=v.z*p}
+  pg.attributes.position.needsUpdate=true;pm.opacity=Math.max(0,1-t/2.5);
+
+  rings.forEach((r,i)=>{const q=Math.max(0,Math.min(1,(t-i*.18)/1.55));r.scale.setScalar(.2+q*6);r.material.opacity=q*(1-q)*1.8});
+  if(t>4){active=false;reset()}
+ }
+ controls.update();renderer.render(scene,camera);
+}
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+animate(performance.now());
+</script>
+</body>
+</html>
